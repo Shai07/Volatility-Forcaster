@@ -103,9 +103,9 @@ def main(tickers: str | list[str], start_date: str, end_date: str, train_test_sp
 
 if __name__ == "__main__":
     config = {
-        'tickers': ['AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA'],
+        'tickers': ["SPY", "TSLA", "AAPL", "AMZN", "NVDA"],
         'start_date': '2010-01-01',
-        'end_date': '2025-12-01',
-        'train_test_split_date': '2025-10-01'
+        'end_date': '2023-12-28',
+        'train_test_split_date': '2023-12-01'
     }
     main(config['tickers'], config['start_date'], config['end_date'], config['train_test_split_date'])
