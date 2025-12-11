@@ -16,9 +16,9 @@ class DataLoader:
         """Downloads historical market data using yfinance."""
         # auto_adjust=True provides adjusted prices and handles splits/dividends.
         data = yf.download(self.tickers, start=self.start_date, end=self.end_date, auto_adjust=True)
-        # If only one ticker, yfinance doesn't create a multi-index column.
-        # Fix to keep processing consistent
-        if len(self.tickers) == 1 and not data.empty:
+        # For a single ticker, yfinance might not return a MultiIndex.
+        # We ensure columns are a MultiIndex for consistent processing.
+        if len(self.tickers) == 1 and not data.empty and not isinstance(data.columns, pd.MultiIndex):
             data.columns = pd.MultiIndex.from_product([data.columns, self.tickers])
         return data
     
@@ -27,7 +27,7 @@ class DataLoader:
         """Cleans the raw price data."""
         # We expect multi-index columns: ('Open', 'TICKER'), ('Close', 'TICKER'), etc.
         # Let's stack the tickers to handle them individually.
-        df = data.stack(level=1).rename_axis(['Date', 'Ticker'])
+        df = data.stack(level=1, future_stack=True).rename_axis(['Date', 'Ticker'])
         
         # Forward-fill missing values, a common approach for price data
         df = df.groupby('Ticker').ffill()

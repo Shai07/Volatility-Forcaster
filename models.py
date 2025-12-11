@@ -68,9 +68,10 @@ class GARCHModel(VolatilityModel):
         forecasts = self.model_res.forecast(horizon=horizon)
         # Extract variance forecast (last step)
         var_forecast = forecasts.variance.iloc[-1].values
-        # Convert to volatility (std dev) and rescale back
-        vol_forecast = np.sqrt(var_forecast) / self.scale
-        return vol_forecast
+        # The model was fit on scaled returns, so the variance forecast is for scaled returns.
+        # To get the variance forecast for the original returns, we must divide by scale**2.
+        var_forecast_rescaled = var_forecast / (self.scale ** 2)
+        return var_forecast_rescaled
 
 
 class MLVolatilityModel(VolatilityModel):
@@ -80,7 +81,7 @@ class MLVolatilityModel(VolatilityModel):
     """
     def __init__(self, model: BaseEstimator = None, lags: int = 5):
         self.lags = lags
-        self.model = model if model else RandomForestRegressor(n_estimators=100, random_state=42)
+        self.model = model if model is not None else RandomForestRegressor(n_estimators=100, random_state=42)
         self.scaler = StandardScaler()
         self.last_window = None
 
