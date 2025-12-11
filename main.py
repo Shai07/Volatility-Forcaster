@@ -10,7 +10,7 @@ def main(tickers: str | list[str], start_date: str, end_date: str, train_test_sp
     Main function to run the volatility forecasting pipeline.
     """
     # 1. Configuration
-    TICKER = tickers  # Example: S&P 500 ETF
+    TICKER = tickers
     START_DATE = start_date
     END_DATE = end_date
     TRAIN_TEST_SPLIT_DATE = train_test_split_date
