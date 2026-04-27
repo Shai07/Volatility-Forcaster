@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator
 from arch import arch_model
@@ -68,27 +68,38 @@ class GARCHModel(VolatilityModel):
         forecasts = self.model_res.forecast(horizon=horizon)
         # Extract variance forecast (last step)
         var_forecast = forecasts.variance.iloc[-1].values
-        # Convert to volatility (std dev) and rescale back
-        vol_forecast = np.sqrt(var_forecast) / self.scale
-        return vol_forecast
+        # The model was fit on scaled returns, so the variance forecast is for scaled returns.
+        # To get the variance forecast for the original returns, we must divide by scale**2.
+        var_forecast_rescaled = var_forecast / (self.scale ** 2)
+        return var_forecast_rescaled
 
 
 class MLVolatilityModel(VolatilityModel):
     """
-    Machine Learning based volatility forecasting.
-    Uses lagged values of the input (volatility) to predict future values.
+    ML-based volatility forecasting using lagged features.
+    Supports Random Forest or Gradient Boosting from scikit-learn.
     """
-    def __init__(self, model: BaseEstimator = None, lags: int = 5):
+    def __init__(self, model_type: str = "RF", lags: int = 5):
+        """
+        model_type: "RF" = Random Forest, "GB" = Gradient Boosting
+        lags: number of lag features to use
+        """
         self.lags = lags
-        self.model = model if model else RandomForestRegressor(n_estimators=100, random_state=42)
+
+        if model_type == "RF":
+            self.model = RandomForestRegressor(n_estimators=100, min_samples_leaf=5, random_state=42)
+        elif model_type == "GB":
+            self.model = GradientBoostingRegressor(
+                n_estimators=200, learning_rate=0.05, max_depth=3, random_state=42
+            )
+        else:
+            raise ValueError(f"Unknown model_type '{model_type}'. Choose 'RF' or 'GB'.")
+
         self.scaler = StandardScaler()
         self.last_window = None
 
     def fit(self, vol_data: pd.Series | pd.DataFrame):
-        """
-        Fits the ML model.
-        Note: Expects realized volatility (or squared returns) as input.
-        """
+        """Fit the model using lagged volatility features."""
         if isinstance(vol_data, pd.DataFrame):
             # Try to find a 'volatility' or 'vol' column (case-insensitive)
             target_col = next((col for col in vol_data.columns if 'vol' in str(col).lower()), None)
@@ -97,32 +108,31 @@ class MLVolatilityModel(VolatilityModel):
             elif vol_data.shape[1] == 1:
                 vol_data = vol_data.iloc[:, 0]
             else:
-                raise ValueError("Input is a DataFrame. Please ensure it has a 'volatility' column or is a single column.")
+                raise ValueError("Input is a DataFrame. Please ensure it has a 'volatility' column or is a single-column DataFrame.")
 
         # Create lagged features
-        df = pd.DataFrame(vol_data.copy())
-        df.columns = ['y']
+        df = vol_data.to_frame(name='y')
         for i in range(1, self.lags + 1):
             df[f'lag_{i}'] = df['y'].shift(i)
         df.dropna(inplace=True)
 
         X = df.drop(columns=['y']).values
         y = df['y'].values
-
+        
         X_scaled = self.scaler.fit_transform(X)
         self.model.fit(X_scaled, y)
 
-        # Save last window for prediction
+        # Save last window for recursive forecasting
         self.last_window = vol_data.iloc[-self.lags:].values
         return self
 
     def predict(self, horizon: int = 1):
+        """Recursive forecast for given horizon."""
         if self.last_window is None:
             raise ValueError("Model must be fitted before predicting.")
 
         predictions = []
-        # Prepare initial input: reverse order so index 0 is lag_1 (most recent)
-        current_input = self.last_window[::-1].reshape(1, -1)
+        current_input = self.last_window[::-1].reshape(1, -1)  # lag_1 first
 
         for _ in range(horizon):
             input_scaled = self.scaler.transform(current_input)
@@ -130,7 +140,7 @@ class MLVolatilityModel(VolatilityModel):
             predictions.append(pred)
 
             # Update input for next step (recursive forecasting)
-            # Shift right and place new prediction at lag_1
+            # Shift right and insert new prediction as lag_1
             current_input = np.roll(current_input, 1)
             current_input[0, 0] = pred
 
